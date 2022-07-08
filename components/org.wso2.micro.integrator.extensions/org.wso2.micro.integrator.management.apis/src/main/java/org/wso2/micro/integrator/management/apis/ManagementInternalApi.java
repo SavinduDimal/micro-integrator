@@ -29,36 +29,7 @@ import org.wso2.carbon.inbound.endpoint.internal.http.api.InternalAPIHandler;
 import java.util.ArrayList;
 import java.util.List;
 
-import static org.wso2.micro.integrator.management.apis.Constants.PATH_PARAM_CARBON_APP_NAME;
-import static org.wso2.micro.integrator.management.apis.Constants.PATH_PARAM_EXTERNAL_VAULT_NAME;
-import static org.wso2.micro.integrator.management.apis.Constants.PATH_PARAM_ROLE;
-import static org.wso2.micro.integrator.management.apis.Constants.PATH_PARAM_TRANSACTION;
-import static org.wso2.micro.integrator.management.apis.Constants.PATH_PARAM_USER;
-import static org.wso2.micro.integrator.management.apis.Constants.PREFIX_APIS;
-import static org.wso2.micro.integrator.management.apis.Constants.PREFIX_CARBON_APPS;
-import static org.wso2.micro.integrator.management.apis.Constants.PREFIX_CONNECTORS;
-import static org.wso2.micro.integrator.management.apis.Constants.PREFIX_DATA_SERVICES;
-import static org.wso2.micro.integrator.management.apis.Constants.PREFIX_DATA_SOURCES;
-import static org.wso2.micro.integrator.management.apis.Constants.PREFIX_ENDPOINTS;
-import static org.wso2.micro.integrator.management.apis.Constants.PREFIX_EXTERNAL_VAULTS;
-import static org.wso2.micro.integrator.management.apis.Constants.PREFIX_INBOUND_ENDPOINTS;
-import static org.wso2.micro.integrator.management.apis.Constants.PREFIX_LOCAL_ENTRIES;
-import static org.wso2.micro.integrator.management.apis.Constants.PREFIX_LOGGING;
-import static org.wso2.micro.integrator.management.apis.Constants.PREFIX_LOGIN;
-import static org.wso2.micro.integrator.management.apis.Constants.PREFIX_LOGOUT;
-import static org.wso2.micro.integrator.management.apis.Constants.PREFIX_LOG_FILES;
-import static org.wso2.micro.integrator.management.apis.Constants.PREFIX_MESSAGE_PROCESSORS;
-import static org.wso2.micro.integrator.management.apis.Constants.PREFIX_MESSAGE_STORE;
-import static org.wso2.micro.integrator.management.apis.Constants.PREFIX_PROXY_SERVICES;
-import static org.wso2.micro.integrator.management.apis.Constants.PREFIX_ROLES;
-import static org.wso2.micro.integrator.management.apis.Constants.PREFIX_SEQUENCES;
-import static org.wso2.micro.integrator.management.apis.Constants.PREFIX_SERVER_DATA;
-import static org.wso2.micro.integrator.management.apis.Constants.PREFIX_TASKS;
-import static org.wso2.micro.integrator.management.apis.Constants.PREFIX_TEMPLATES;
-import static org.wso2.micro.integrator.management.apis.Constants.PREFIX_TRANSACTION;
-import static org.wso2.micro.integrator.management.apis.Constants.PREFIX_USERS;
-import static org.wso2.micro.integrator.management.apis.Constants.REST_API_CONTEXT;
-import static org.wso2.micro.integrator.management.apis.Constants.ROOT_CONTEXT;
+import static org.wso2.micro.integrator.management.apis.Constants.*;
 
 public class ManagementInternalApi implements InternalAPI {
 
@@ -86,6 +57,7 @@ public class ManagementInternalApi implements InternalAPI {
         resourcesList.add(new ApiResourceAdapter(PREFIX_MESSAGE_STORE, new MessageStoreResource()));
         resourcesList.add(new MessageProcessorResource(PREFIX_MESSAGE_PROCESSORS));
         resourcesList.add(new ApiResourceAdapter(PREFIX_LOCAL_ENTRIES, new LocalEntryResource()));
+        resourcesList.add(new ApiResourceAdapter(PREFIX_REGISTRY_RESOURCES, new RegistryResource()));
         resourcesList.add(new ApiResourceAdapter(PREFIX_CONNECTORS, new ConnectorResource()));
         resourcesList.add(new ApiResourceAdapter(PREFIX_LOGIN, new LoginResource()));
         resourcesList.add(new ApiResourceAdapter(PREFIX_USERS + PATH_PARAM_USER, new UserResource()));

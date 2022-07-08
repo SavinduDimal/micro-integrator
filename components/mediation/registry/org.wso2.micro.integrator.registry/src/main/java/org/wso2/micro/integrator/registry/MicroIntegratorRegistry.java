@@ -30,6 +30,8 @@ import org.apache.synapse.SynapseException;
 import org.apache.synapse.registry.AbstractRegistry;
 import org.apache.synapse.registry.RegistryEntry;
 import org.apache.synapse.util.SynapseBinaryDataSource;
+import org.json.JSONArray;
+import org.json.JSONObject;
 
 import java.io.BufferedInputStream;
 import java.io.BufferedReader;
@@ -47,11 +49,7 @@ import java.net.URISyntaxException;
 import java.net.URL;
 import java.net.URLConnection;
 import java.nio.file.Paths;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Properties;
+import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import javax.activation.DataHandler;
@@ -103,6 +101,16 @@ public class MicroIntegratorRegistry extends AbstractRegistry {
     private int registryProtocol = FILE;
 
     private static Map<String, Long> resourceLastModifiedMap = new HashMap<String, Long>();
+
+    //Contains all the registry paths deployed
+    private List<String> registryPathList = new ArrayList<String>();
+
+    //Contains all the metadata for each registry resource
+    private static Map<String, String> registryMetadataMap = new HashMap<String, String>();
+
+    //Contains all the properties for each registry resource
+    private static Map<String, Properties> registryPropertyMap = new HashMap<String, Properties>();
+
 
 
     public MicroIntegratorRegistry() {
@@ -607,7 +615,7 @@ public class MicroIntegratorRegistry extends AbstractRegistry {
                     if (!collection.exists() && !collection.mkdirs()) {
                         handleException("Unable to create collection: " + collection.getPath());
                     }
-                    if (properties != null && !properties.isEmpty()) {
+                     if (properties != null && !properties.isEmpty()) {
                         writeProperties(parentFile, getResourceName(targetPath), properties);
                     }
                 } else {
@@ -1251,4 +1259,330 @@ public class MicroIntegratorRegistry extends AbstractRegistry {
         }
     }
 
+    /**
+     * Returns a list of paths for all the registry artifacts
+     * @param carbonHomePath
+     * @return
+     */
+    public List<String> getRegistryPathList(String carbonHomePath){
+        String folderPath = carbonHomePath + File.separator + "registry" + File.separator;
+        File node = new File(folderPath);
+        addNodes(node, carbonHomePath);
+        return registryPathList;
+    }
+
+    /** Updates registryPathList
+     * Returns
+     * @param node
+     * @param carbonHomePath
+     */
+    private void addNodes(File node, String carbonHomePath){
+        String nodeName = node.getName();
+        if (!nodeName.equals(".DS_Store") && !nodeName.endsWith(".meta") && !nodeName.endsWith(".meta") && !nodeName.endsWith(".metadata") && !nodeName.endsWith(".properties")){
+            String registryAbsolutePath = node.getPath();
+            String registryRelativePath = registryAbsolutePath.replace(carbonHomePath,"");
+            registryPathList.add(registryRelativePath);
+        }
+
+        if(node.isDirectory()){
+            String[] childNodes = node.list();
+            for (String childNode : childNodes){
+                addNodes(new File(node,childNode),carbonHomePath);
+            }
+        }
+    }
+
+    /**
+     * Returns a JSON object with the folder structure of the <MI-HOME>/registry directory
+     * @param folderPath
+     * @return
+     */
+    public JSONObject getRegistryMapJSON(String folderPath){
+        File node = new File(folderPath);
+        JSONObject jsonObject = new JSONObject();
+        addNodesToJSON(node,jsonObject);
+        return jsonObject;
+    }
+
+    /**
+     * Updates the JSON object with existing files and folder in the <MI-HOME>/registry directory
+     * Updates a MAP with the metadata of each registry
+     * Updates a MAP with the properties of each registry
+     * @param node
+     * @param jsonObject
+     */
+    private void addNodesToJSON(File node, JSONObject jsonObject){
+        String nodeName = node.getName();
+        jsonObject.put("name", nodeName);
+
+        if (node.isDirectory()) {
+            jsonObject.put("type", "Directory");
+            JSONArray childArray = new JSONArray();
+            String[] childNodes = node.list();
+            for (String childNode : childNodes) {
+                if (!childNode.startsWith(".") && !childNode.endsWith(".meta") &&
+                        !childNode.endsWith(".metadata") && !childNode.endsWith(".properties")) {
+                    JSONObject nodeJSONObject = new JSONObject();
+                    File childFile = new File(node, childNode);
+                    addNodesToJSON(childFile, nodeJSONObject);
+                    childArray.put(nodeJSONObject);
+                } else if (childNode.endsWith(".properties")) {
+                    String propertyOwner = childNode.replace(".properties","");
+                    if (!Arrays.asList(childNodes).contains(propertyOwner)){
+                        JSONObject nodeJSONObject = new JSONObject();
+                        File childFile = new File(node, propertyOwner);
+                        nodeJSONObject.put("name", propertyOwner);
+                        storePropertiesMap(childFile);
+                        nodeJSONObject.put("type", "Leaf Node - Property File");
+                        nodeJSONObject.put("children", Collections.<String>emptyList());
+                        childArray.put(nodeJSONObject);
+                    }
+                }
+            }
+            jsonObject.put("children", childArray);
+        } else {
+            String mediaType = DEFAULT_MEDIA_TYPE;
+            Properties metadata = getMetadata(node.getPath());
+            if (metadata != null) {
+                String mediaTypeValue = metadata.getProperty(METADATA_KEY_MEDIA_TYPE);
+                if (StringUtils.isNotEmpty(mediaTypeValue)) {
+                    mediaType = mediaTypeValue;
+                    registryMetadataMap.put(node.getPath(),mediaType);
+                }
+            }
+            storePropertiesMap(node);
+            jsonObject.put("type", "Leaf Node");
+            jsonObject.put("children", Collections.<String>emptyList());
+        }
+    }
+
+    /**
+     * Returns metadata (media type) of a specified registry
+     * @param path
+     * @return
+     */
+    public String getRegistryMediaType(String path){
+        String mediaType;
+        if (registryMetadataMap.containsKey(path)){
+            mediaType = registryMetadataMap.get(path);
+        } else {
+            mediaType = "registry does not exist";
+        }
+        return mediaType;
+    }
+
+    /**
+     * Returns properties of a specified registry
+     * @param path
+     * @return
+     */
+    public Properties getRegistryProperties(String path){
+        Properties propertyList = new Properties();
+        if (registryPropertyMap.containsKey(path)){
+            propertyList = registryPropertyMap.get(path);
+        }
+        return propertyList;
+    }
+
+    /**
+     * Updates the registryPropertyMap after fetching from the .properties file
+     * @param node
+     */
+    private void storePropertiesMap(File node){
+        Properties properties = new Properties();
+        Properties registryProperties = lookupPropertiesForMap(node.getPath());
+        if (registryProperties != null) {
+            for (Object key : registryProperties.keySet()) {
+                Object value = registryProperties.get(key);
+                if (value instanceof List) {
+                    if (((List) value).size() > 0) {
+                        Object propertyValue = ((List) value).get(0);
+                        if (propertyValue != null) {
+                            properties.put(key, propertyValue);
+                        }
+                    }
+                } else {
+                    properties.put(key, value);
+                }
+            }
+            registryPropertyMap.put(node.getPath(),properties);
+        }
+
+    }
+
+    private Properties lookupPropertiesForMap(String resolvedRegKeyPath) {
+        if (log.isDebugEnabled()) {
+            log.debug("==> Repository fetch of resource with key : " + resolvedRegKeyPath);
+        }
+
+        Properties result = new Properties();
+
+        URL url = null;
+        // get the path to the relevant property file
+        try {
+            resolvedRegKeyPath = "file://"+resolvedRegKeyPath + MicroIntegratorRegistryConstants.PROPERTY_EXTENTION ;
+            url = new URL(resolvedRegKeyPath);
+        } catch (MalformedURLException e) {
+            handleException("Invalid path '" + resolvedRegKeyPath + "' for URL", e);
+        }
+
+        if (lookupUtil(resolvedRegKeyPath, url)) {
+            return null;
+        }
+
+        try {
+            URLConnection urlConnection = url.openConnection();
+            urlConnection.connect();
+            try (InputStream input = urlConnection.getInputStream()) {
+                if (input == null) {
+                    return null;
+                }
+                result.load(input);
+            }
+        } catch (IOException e) {
+            log.error("Error in loading properties", e);
+            return null;
+        }
+        return result;
+    }
+
+    /**
+     * Returns JSON array with immediate children, metadata and properties of a given parent directory
+     * @param folderPath
+     * @return
+     */
+    public JSONArray getChildrenList(String folderPath){
+        File node = new File(folderPath);
+        JSONArray jsonArray = new JSONArray();
+        addImmediateChildren(node,jsonArray);
+        return jsonArray;
+    }
+
+    /**
+     * Updates the JSON array with JSON objects for each child file/folder
+     * @param node
+     * @param childArray
+     */
+    private void addImmediateChildren(File node, JSONArray childArray){
+        String nodeName = node.getName();
+        if (node.isDirectory()) {
+            String[] childNodes = node.list();
+            for (String childNode : childNodes) {
+                if (!childNode.startsWith(".") && !childNode.endsWith(".meta") &&
+                        !childNode.endsWith(".metadata") && !childNode.endsWith(".properties")) {
+                    JSONObject childJSONObject = new JSONObject();
+                    File childFile = new File(node, childNode);
+
+                    //add name of the child file/folder
+                    childJSONObject.put("childName",childFile.getName());
+
+                    //add properties of the child file/folder
+                    Properties properties = new Properties();
+                    Properties registryProperties = lookupPropertiesForMap(childFile.getPath());
+                    if (registryProperties != null) {
+                        for (Object key : registryProperties.keySet()) {
+                            Object value = registryProperties.get(key);
+                            if (value instanceof List) {
+                                if (((List) value).size() > 0) {
+                                    Object propertyValue = ((List) value).get(0);
+                                    if (propertyValue != null) {
+                                        properties.put(key, propertyValue);
+                                    }
+                                }
+                            } else {
+                                properties.put(key, value);
+                            }
+                        }
+                        registryPropertyMap.put(childFile.getPath(),properties);
+                    }
+                    JSONArray propertiesJSONArray = new JSONArray();
+                    if (properties != null){
+                        for (Object property : properties.keySet()){
+                            Object value = properties.get(property);
+                            JSONObject propertyObject = new JSONObject();
+                            propertyObject.put("propertyName",property);
+                            propertyObject.put("propertyValue",value);
+                            propertiesJSONArray.put(propertyObject);
+                        }
+                    }
+                    childJSONObject.put("properties",propertiesJSONArray);
+
+                    //add metadata of the child file/folder
+//                    String mediaType = DEFAULT_MEDIA_TYPE;
+                    String mediaType = "-";
+                    if (childFile.isDirectory()) {
+                        mediaType = "directory";
+                    } else {
+                        Properties metadata = getMetadata(childFile.getPath());
+                        if (metadata != null) {
+                            String mediaTypeValue = metadata.getProperty(METADATA_KEY_MEDIA_TYPE);
+                            if (StringUtils.isNotEmpty(mediaTypeValue)) {
+                                mediaType = mediaTypeValue;
+                            }
+                        }
+                    }
+                    registryMetadataMap.put(childFile.getPath(),mediaType);
+                    childJSONObject.put("mediaType",mediaType);
+                    childArray.put(childJSONObject);
+                } else if (childNode.endsWith(".properties")){
+                    String propertyOwner = childNode.replace(".properties","");
+                    if (!Arrays.asList(childNodes).contains(propertyOwner)){
+                        JSONObject childJSONObject = new JSONObject();
+                        File childFile = new File(node, propertyOwner);
+
+                        //add name of the child file/folder
+                        childJSONObject.put("childName",childNode);
+
+                        //add properties of the child file/folder
+                        Properties properties = new Properties();
+                        Properties registryProperties = lookupPropertiesForMap(childFile.getPath());
+                        if (registryProperties != null) {
+                            for (Object key : registryProperties.keySet()) {
+                                Object value = registryProperties.get(key);
+                                if (value instanceof List) {
+                                    if (((List) value).size() > 0) {
+                                        Object propertyValue = ((List) value).get(0);
+                                        if (propertyValue != null) {
+                                            properties.put(key, propertyValue);
+                                        }
+                                    }
+                                } else {
+                                    properties.put(key, value);
+                                }
+                            }
+                            registryPropertyMap.put(childFile.getPath(),properties);
+                        }
+                        JSONArray propertiesJSONArray = new JSONArray();
+                        if (properties != null){
+                            for (Object property : properties.keySet()){
+                                Object value = properties.get(property);
+                                JSONObject propertyObject = new JSONObject();
+                                propertyObject.put("propertyName",property);
+                                propertyObject.put("propertyValue",value);
+                                propertiesJSONArray.put(propertyObject);
+                            }
+                        }
+                        childJSONObject.put("properties",propertiesJSONArray);
+
+                        //add metadata of the child file/folder
+//                        String mediaType = DEFAULT_MEDIA_TYPE;
+                        String mediaType = "-";
+                        if (childFile.isDirectory()) {
+                            mediaType = "directory";
+                        } else {
+                            Properties metadata = getMetadata(childFile.getPath());
+                            if (metadata != null) {
+                                String mediaTypeValue = metadata.getProperty(METADATA_KEY_MEDIA_TYPE);
+                                if (StringUtils.isNotEmpty(mediaTypeValue)) {
+                                    mediaType = mediaTypeValue;
+                                }
+                            }
+                        }
+                        childJSONObject.put("mediaType",mediaType);
+                        childArray.put(childJSONObject);
+                    }
+                }
+            }
+        }
+    }
 }
